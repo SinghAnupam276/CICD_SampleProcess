@@ -1,0 +1,77 @@
+# Starter pipeline
+
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- main
+
+variables:
+- name: agent.preferPowerShallOnContainer
+  value: true
+
+pool:
+  vmImage: 'windows-latest'
+  
+stages:
+    - stage: RunProcessFlow
+      displayName: Run Process
+      condition: succeeded()
+      jobs: 
+      - job: RunPackage
+        steps:
+        - task: UiPathRunJob@2
+          inputs:
+            orchestratorConnection: 'UiPath_DEV_Conn'
+            processName: 'CICD_SampleProcess'
+            folderName: 'Shared'
+            jobType: 'Unattended'
+            traceLevel: 'Information'
+
+
+    - stage: TestDEV
+      displayName: Test Cases
+      condition: succeeded()
+      jobs:
+      - job: TestDEV
+        
+        steps:
+          - task: UiPathTest@2
+            inputs:
+              testTarget: 'TestSet'
+              orchestratorConnection: 'UiPath_DEV_Conn'
+              testSet: 'CICD_SampleTestSet'
+              folderName: 'Shared'
+    - stage:
+      displayName: Build Package
+      jobs: 
+      - job: BuildPackage
+        steps:
+        - task: UiPathPack@2
+          inputs:
+            versionType: 'AutoVersion'
+            projectJsonPath: '$(Build.SourcesDirectory)\project.json'
+            outputType: 'Process'
+            orchestratorConnection: 'UiPath_DEV_Conn'
+            outputPath: '$(Build.ArtifactStagingDirectory)\SIR'
+        - publish: $(Build.ArtifactStagingDirectory)\SIR
+          artifact: drop
+
+    - stage: DeployDEV
+      displayName: Deploy build artifact to DEV
+    
+      condition: succeeded()
+      jobs:
+      - deployment: deployDEV
+        displayName: Deploy package to DEV Orchestrator
+        environment: DEV
+        strategy:
+         runOnce:
+          deploy:
+           steps:
+            - task: UiPathDeploy@2
+              inputs:
+                orchestratorConnection: 'UiPath_UAT_Conn'
+                packagesPath: '$(Pipeline.Workspace)\drop\'
+                folderName: 'Shared'
